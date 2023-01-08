@@ -5,17 +5,21 @@ use serde::{Serialize, Deserialize};
 use tokio_util::codec::{Framed, LengthDelimitedCodec};
 use std::net::SocketAddr;
 use x25519_dalek::{EphemeralSecret, PublicKey};
+use sha2::{Sha256, Digest};
 
 #[derive(Serialize, Deserialize, Debug)]
 enum RelayType {
     Extend{public_x: [u8; 32], ip: SocketAddr},
-    Extended{public_y: [u8; 32]},
+    Extended{public_y: [u8; 32], hash: [u8; 32]},
+    Begin{ addr: String },
+    Connected,
+    Data,
 }
 
 #[derive(Serialize, Deserialize, Debug)]
 enum CellType {
     Create{public_x: [u8; 32]},
-    Created{public_y: [u8; 32]},
+    Created{public_y: [u8; 32], hash: [u8; 32]},
     Relay{recognised: u32, stream_id: u32, digest: u32, data: RelayType, padding: Vec<u8>},
 }
 
@@ -51,10 +55,21 @@ pub async fn main() {
     while let Some(msg) = serialized.try_next().await.unwrap() {
 
 
-        if let CellType::Created {public_y} = msg.data {
+        if let CellType::Created {public_y, hash} = msg.data {
 
             // Calculate the shared secret
             let onion_secret = client_secret.diffie_hellman(&PublicKey::from(public_y)).to_bytes();
+
+            //Calculate thee hash of the shared secret
+            let mut hasher = Sha256::new();
+
+            hasher.update(&onion_secret);
+
+            let ga = hasher.finalize();
+
+            let calculated_hash = ga.as_slice();
+
+            println!("Hash verify: {}", calculated_hash == &hash);
 
             println!("Shared: {:?}", onion_secret);
 
